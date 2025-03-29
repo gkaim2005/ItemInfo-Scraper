@@ -28,6 +28,7 @@ def get_product_details(driver, sku):
     description = ""
     specifications = ""
     main_image = ""
+
     try:
         product_name_elem = wait.until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "#wrapper > div > div.container > div > div.col-xs-12.col-sm-12.col-md-9.col-lg-9.details-page > div > div.col-lg-7.col-md-7.col-sm-6.col-xs-12.wow.fadeInUp.product-section > div.hidden-xs > h1 > span"))
@@ -35,6 +36,17 @@ def get_product_details(driver, sku):
         product_name = product_name_elem.text.strip()
     except Exception as e:
         print(f"Error getting product name for SKU {sku}: {e}")
+
+    try:
+        image_elem = wait.until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "a.main-product-images img.img-responsive.lazyOwl"))
+        )
+        main_image = image_elem.get_attribute("src")
+        if main_image.startswith("//"):
+            main_image = "https:" + main_image
+    except Exception as e:
+        print(f"Error getting main product image for SKU {sku}: {e}")
+
     try:
         description_container = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, ".product-description"))
@@ -51,6 +63,7 @@ def get_product_details(driver, sku):
             description += "\n" + "\n".join(bullet_points)
     except Exception as e:
         print(f"Error getting description for SKU {sku}: {e}")
+
     try:
         details_elem = wait.until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "div#details"))
@@ -79,21 +92,13 @@ def get_product_details(driver, sku):
         specifications = "\n\n".join(sections)
     except Exception as e:
         print(f"Error getting specifications for SKU {sku}: {e}")
-    try:
-        image_elem = wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "a.main-product-images img.img-responsive.lazyOwl"))
-        )
-        main_image = image_elem.get_attribute("src")
-        if main_image.startswith("//"):
-            main_image = "https:" + main_image
-    except Exception as e:
-        print(f"Error getting main product image for SKU {sku}: {e}")
+
     return {
         "SKU": sku,
         "Product Name": product_name,
+        "Main Image": main_image,
         "Description": description,
-        "Specifications": specifications,
-        "Main Image": main_image
+        "Specifications": specifications
     }
 
 def process_sku(sku):
@@ -120,7 +125,7 @@ def main():
     with open(input_file, "r", encoding="utf-8") as f:
         skus = [line.strip() for line in f if line.strip()]
     with open(output_file, "w", newline='', encoding="utf-8") as csvfile:
-        fieldnames = ["SKU", "Product Name", "Description", "Specifications", "Main Image"]
+        fieldnames = ["SKU", "Product Name", "Main Image", "Description", "Specifications"]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames, quoting=csv.QUOTE_ALL)
         writer.writeheader()
         max_workers = 9
