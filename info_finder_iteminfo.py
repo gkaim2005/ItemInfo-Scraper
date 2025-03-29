@@ -23,8 +23,8 @@ def is_product_listed(driver, sku):
 def get_product_details(driver, sku):
     url = f"https://www.iteminfo.com/product/{sku}"
     driver.get(url)
-    wait = WebDriverWait(driver, 15)
-    time.sleep(2)
+    wait = WebDriverWait(driver, 10)
+    time.sleep(1)
     product_name = ""
     description = ""
     specifications = ""
