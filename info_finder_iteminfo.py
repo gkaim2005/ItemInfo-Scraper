@@ -8,65 +8,47 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-def is_product_listed(driver, sku):
+def check_listed(driver, sku):
     url = f"https://www.iteminfo.com/product/{sku}"
     driver.get(url)
     try:
-        WebDriverWait(driver, 5).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR,
-                "#wrapper > div > div.container > div > div.col-xs-12.col-sm-12.col-md-9.col-lg-9.details-page > div > div.col-lg-7.col-md-7.col-sm-6.col-xs-12.wow.fadeInUp.product-section > div.hidden-xs > h1 > span"))
-        )
+        WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CSS_SELECTOR, "#wrapper > div > div.container > div > div.col-xs-12.col-sm-12.col-md-9.col-lg-9.details-page > div > div.col-lg-7.col-md-7.col-sm-6.col-xs-12.wow.fadeInUp.product-section > div.hidden-xs > h1 > span")))
         return True
     except Exception:
         return False
 
-def get_product_details(driver, sku):
+def scrape_product(driver, sku):
     url = f"https://www.iteminfo.com/product/{sku}"
     driver.get(url)
     wait = WebDriverWait(driver, 10)
     time.sleep(1)
-    product_name = ""
-    description = ""
-    specifications = ""
-    main_image = ""
-    details_sections = {}
+    product_name, description, specifications, main_image, details_sections = "", "", "", "", {}
     try:
-        product_name_elem = wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR,
-                "#wrapper > div > div.container > div > div.col-xs-12.col-sm-12.col-md-9.col-lg-9.details-page > div > div.col-lg-7.col-md-7.col-sm-6.col-xs-12.wow.fadeInUp.product-section > div.hidden-xs > h1 > span"))
-        )
+        product_name_elem = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "#wrapper > div > div.container > div > div.col-xs-12.col-sm-12.col-md-9.col-lg-9.details-page > div > div.col-lg-7.col-md-7.col-sm-6.col-xs-12.wow.fadeInUp.product-section > div.hidden-xs > h1 > span")))
         product_name = product_name_elem.text.strip()
     except Exception as e:
         print(f"Error getting product name for SKU {sku}: {e}")
     try:
-        image_elem = wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "a.main-product-images img.img-responsive.lazyOwl"))
-        )
-        main_image = image_elem.get_attribute("src")
-        if main_image.startswith("//"):
-            main_image = "https:" + main_image
+        image_elem = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "a.main-product-images img.img-responsive.lazyOwl")))
+        main_image = image_elem.get_attribute("src") or ""
+        if main_image.startswith("//"): main_image = "https:" + main_image
     except Exception as e:
         print(f"Error getting main product image for SKU {sku}: {e}")
     try:
-        description_container = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, ".product-description"))
-        )
+        description_container = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CSS_SELECTOR, ".product-description")))
         description_elem = description_container.find_element(By.CSS_SELECTOR, "span.ng-binding")
         description = description_elem.text.strip() if description_elem else "No description available."
         bullet_points = []
         try:
             bullet_elements = description_container.find_elements(By.CSS_SELECTOR, "ul.ng-binding li")
-            bullet_points = [f"- {bullet.text.strip()}" for bullet in bullet_elements]
+            bullet_points = [f"- {b.text.strip()}" for b in bullet_elements]
         except Exception:
             pass
-        if bullet_points:
-            description += "\n" + "\n".join(bullet_points)
+        if bullet_points: description += "\n" + "\n".join(bullet_points)
     except Exception as e:
         print(f"Error getting description for SKU {sku}: {e}")
     try:
-        details_elem = wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "div#details"))
-        )
+        details_elem = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "div#details")))
         details_html = details_elem.get_attribute("outerHTML")
         soup = BeautifulSoup(details_html, "html.parser")
         sections = []
@@ -81,8 +63,7 @@ def get_product_details(driver, sku):
                 for row in rows:
                     cells = row.find_all("td")
                     if len(cells) >= 2:
-                        label = cells[0].get_text(strip=True)
-                        value = cells[1].get_text(strip=True)
+                        label = cells[0].get_text(strip=True); value = cells[1].get_text(strip=True)
                         row_texts.append(f"- {label}: {value}")
                     else:
                         row_texts.append(f"- {row.get_text(strip=True)}")
@@ -92,61 +73,48 @@ def get_product_details(driver, sku):
         specifications = "\n\n".join(sections)
     except Exception as e:
         print(f"Error getting specifications for SKU {sku}: {e}")
-    return_dict = {
-        "SKU": sku,
-        "Product Name": product_name,
-        "Main Image": main_image,
-        "Description": description,
-        "Specifications": specifications
-    }
-    return_dict.update(details_sections)
-    return return_dict
+    result = {"SKU": sku, "Product Name": product_name, "Main Image": main_image, "Description": description, "Specifications": specifications}
+    result.update(details_sections)
+    return result
 
-def process_sku(sku):
-    chrome_options = Options()
-    chrome_options.add_argument("--headless")
-    chrome_options.add_argument("--disable-gpu")
-    driver = webdriver.Chrome(options=chrome_options)
+def launch_driver():
+    opts = Options(); opts.add_argument("--headless"); opts.add_argument("--disable-gpu")
+    return webdriver.Chrome(options=opts)
+
+def handle_sku(sku):
+    driver = launch_driver()
     try:
-        if not is_product_listed(driver, sku):
-            print(f"SKU {sku} is not listed. Skipping.")
-            return None
-        else:
-            data = get_product_details(driver, sku)
+        if not check_listed(driver, sku):
+            print(f"SKU {sku} is not listed. Skipping."); return None
+        return scrape_product(driver, sku)
     except Exception as e:
-        print(f"Error processing SKU {sku}: {e}")
-        data = None
+        print(f"Error processing SKU {sku}: {e}"); return None
     finally:
         driver.quit()
-    return data
 
 def main():
-    input_file = "skus_iteminfo.txt"
-    output_file = "products_iteminfo.csv"
-    with open(input_file, "r", encoding="utf-8") as f:
-        skus = [line.strip() for line in f if line.strip()]
+    input_file, output_file = "skus_iteminfo.txt", "products_iteminfo.csv"
+    with open(input_file, "r", encoding="utf-8") as f: skus = [l.strip() for l in f if l.strip()]
     results = []
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {executor.submit(process_sku, sku): sku for sku in skus}
-        for future in as_completed(futures):
-            sku = futures[future]
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        futures = {ex.submit(handle_sku, sku): sku for sku in skus}
+        for fut in as_completed(futures):
+            sku = futures[fut]
             try:
-                product_data = future.result()
-                if product_data is not None:
-                    results.append(product_data)
-                    print(f"Data for SKU {sku} saved.")
+                data = fut.result()
+                if data is not None:
+                    results.append(data); print(f"Data for SKU {sku} saved.")
                 else:
                     print(f"SKU {sku} skipped.")
             except Exception as e:
                 print(f"Error processing SKU {sku}: {e}")
     base_fields = ["SKU", "Product Name", "Main Image", "Description", "Specifications"]
-    extra_fields = sorted(list({key for r in results for key in r.keys() if key not in base_fields}))
+    extra_fields = sorted({k for r in results for k in r.keys() if k not in base_fields})
     fieldnames = base_fields + extra_fields
     with open(output_file, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames, quoting=csv.QUOTE_ALL)
         writer.writeheader()
-        for row in results:
-            writer.writerow(row)
+        for row in results: writer.writerow(row)
     print(f"All data saved to {output_file}")
 
 if __name__ == "__main__":
